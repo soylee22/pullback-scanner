@@ -1,0 +1,51 @@
+name: Weekly pullback scan
+
+on:
+  schedule:
+    # Weekdays after the London close and after the US close (covers the Friday weekly close).
+    - cron: '45 16 * * 1-5'
+    - cron: '30 21 * * 1-5'
+    # Saturday morning confirmation of the completed weekly bar.
+    - cron: '0 8 * * 6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pullback-pages
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run scanner
+        run: python scanner.py
+      - name: Check output
+        run: python -c "import json; d=json.load(open('data/scan.json')); assert d['count'] >= 50, d['count']; print(d['count'], 'instruments,', len(d['failed']), 'failed')"
+      - name: Commit scan
+        run: |
+          git config user.name "soylee22"
+          git config user.email "leeslater1992@gmail.com"
+          git add data/scan.json
+          if git diff --staged --quiet; then
+            echo "No change"
+          else
+            git commit -m "Weekly pullback scan: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4

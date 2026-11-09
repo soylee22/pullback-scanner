@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pullback · Weekly dip signals for UK investors</title>
+<meta name="description" content="Weekly Simple Pullback and Pullback XL signals across 31 UK-listed ETFs and 23 global stocks, with ten-year backtest evidence.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="announce" id="announce">
+  <span id="announceText">Loading the latest weekly scan</span>
+  <button class="announce-x" aria-label="Dismiss" onclick="this.parentElement.remove()">×</button>
+</div>
+
+<header class="nav-wrap">
+  <nav class="nav">
+    <a class="brand" href="#top" aria-label="Pullback home">
+      <svg class="mark" viewBox="0 0 30 22" aria-hidden="true"><path d="M0 0h18a11 11 0 0 1 0 22H0z" fill="#1E6EF3"/><rect y="9.6" width="30" height="2.8" fill="#000"/></svg>
+      <span>Pullback</span>
+    </a>
+    <div class="nav-links">
+      <a href="#signals">Signals</a>
+      <a href="#universe">Universe</a>
+      <a href="#method">Method</a>
+    </div>
+    <a class="nav-cta" href="#signals">Live buys</a>
+  </nav>
+</header>
+
+<section class="hero" id="top">
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="hero-inner">
+    <p class="eyebrow mono" id="heroStamp">Weekly close · 1W</p>
+    <h1 class="split">Buy fear in<br>things that compound.</h1>
+    <p class="lede">Weekly dip signals across 31 UK-listed ETFs and 23 global stocks. Each one is ranked by ten years of evidence.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-blue" href="#signals">See live buys</a>
+      <a class="btn btn-white" href="#method">How it works</a>
+    </div>
+  </div>
+</section>
+
+<section class="stats wrap" aria-label="Scan summary">
+  <div class="stat"><span class="k mono">Pullback XL live</span><span class="v" id="stXl">–</span><span class="s">Tier 1 and 2, at or below −2.40 SD</span></div>
+  <div class="stat"><span class="k mono">Actionable buys</span><span class="v" id="stBuy">–</span><span class="s">Tier 1 and 2 with a signal this week or last</span></div>
+  <div class="stat"><span class="k mono">Tier 1 universe</span><span class="v" id="stT1">–</span><span class="s">80%+ win rate, +12%+ median year</span></div>
+  <div class="stat"><span class="k mono">Last scan</span><span class="v small" id="stTime">–</span><span class="s" id="stNext">Refreshes each weekday</span></div>
+</section>
+
+<section class="wrap section" id="signals">
+  <div class="section-hd">
+    <div>
+      <p class="eyebrow mono">01 · Live</p>
+      <h2>Actionable this week</h2>
+    </div>
+    <p class="section-note">Tier 1 and 2 instruments with a confirmed or live signal. Ordered by signal strength, then backtest tier, then depth.</p>
+  </div>
+  <div class="cards" id="cards"></div>
+  <p class="empty" id="cardsEmpty" hidden>No Tier 1 or 2 signals this week. Patience is the position.</p>
+</section>
+
+<section class="wrap section" id="universe">
+  <div class="section-hd">
+    <div>
+      <p class="eyebrow mono">02 · Universe</p>
+      <h2>All 54 instruments</h2>
+    </div>
+    <div class="controls">
+      <div class="seg" role="tablist" id="filters">
+        <button class="on" data-f="all">All</button>
+        <button data-f="active">Active</button>
+        <button data-f="t12">Tier 1–2</button>
+        <button data-f="ETF">ETFs</button>
+        <button data-f="Stock">Stocks</button>
+      </div>
+      <input id="search" type="search" placeholder="Search ticker or name" autocomplete="off">
+    </div>
+  </div>
+  <p class="sort-note mono" id="sortNote"></p>
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-k="label">Ticker</th>
+          <th data-k="signal">Signal</th>
+          <th data-k="z" class="num">20W Z</th>
+          <th data-k="roc" class="num">14W ROC</th>
+          <th data-k="s50" class="num">vs 50W</th>
+          <th data-k="pb" class="num">All PB · 1Y</th>
+          <th data-k="xl" class="num">XL · 1Y</th>
+          <th data-k="dd" class="num">3M dip</th>
+          <th data-k="tier">Verdict</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="wrap section" id="method">
+  <div class="section-hd">
+    <div>
+      <p class="eyebrow mono">03 · Method</p>
+      <h2>Three conditions.<br>One weekly close.</h2>
+    </div>
+  </div>
+  <div class="method">
+    <article><span class="num-big">01</span><h3>Below trend</h3><p>The weekly close sits under both the 20-week and 50-week moving averages. The prior close sits under the 14-week average.</p></article>
+    <article><span class="num-big">02</span><h3>Falling</h3><p>The 14-week rate of change is negative on this bar or the last one. The selling is real, not a single soft week.</p></article>
+    <article><span class="num-big">03</span><h3>Stretched</h3><p>Price closes 1.35 standard deviations below its 20-week mean for a Pullback, or 2.40 for a Pullback XL.</p></article>
+  </div>
+  <div class="method-foot">
+    <p><strong>One per episode.</strong> After a signal, nothing new fires until price recovers to +0.25 SD above the 20-week mean. Labels lock on the Friday close and never repaint.</p>
+    <p><strong>Tiers come from evidence.</strong> Tier 1 won at least 80% of the time a year later with a median gain of 12% or more. Tier 2 meets that bar only on XL signals. Tier 4 instruments are value traps for this method.</p>
+    <p class="fine">Backtests use Yahoo Finance adjusted weekly closes over the last ten years. Past results do not guarantee future returns. This is research, not financial advice.</p>
+  </div>
+</section>
+
+<footer class="foot wrap">
+  <span>Pullback · SMR 14/20 weekly scanner</span>
+  <a href="https://github.com/soylee22/pullback-scanner" target="_blank" rel="noopener">Source and workflow ↗</a>
+</footer>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-bg" data-close></div>
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+    <button class="drawer-x" data-close aria-label="Close">×</button>
+    <div id="dBody"></div>
+  </div>
+</aside>
+
+<script src="app.js"></script>
+</body>
+</html>
