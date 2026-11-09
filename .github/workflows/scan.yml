@@ -1,6 +1,9 @@
 name: Weekly pullback scan
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Weekdays after the London close and after the US close (covers the Friday weekly close).
     - cron: '45 16 * * 1-5'
