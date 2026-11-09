@@ -191,7 +191,7 @@
           <div><span class="k">${r.tier === 2 ? "XL 1Y" : "PB 1Y"}</span><span class="v ${cls(r.tier === 2 ? r.xl.med_1y : r.pb.med_1y)}">${fmtPct(r.tier === 2 ? r.xl.med_1y : r.pb.med_1y)}</span></div>
           <div><span class="k">Win rate</span><span class="v">${Math.round((r.tier === 2 ? r.xl.win_1y : r.pb.win_1y) ?? 0)}%</span></div>
         </div>
-        <div class="card-foot"><span>Tier ${r.tier} · ${r.verdict}</span><span>3M dip ${fmtPct(r.pb.med_dd_3m)}</span></div>
+        <div class="card-foot"><span>Tier ${r.tier} · ${r.verdict}</span><span>n=${r.tier === 2 ? r.xl.count : r.pb.count} (${r.years}Y) · dip ${fmtPct(r.pb.med_dd_3m)}</span></div>
       </article>`)
       .join("");
   }
@@ -218,7 +218,7 @@
     $("#tbl tbody").innerHTML = rows
       .map((r) => `
       <tr data-sym="${r.symbol}">
-        <td><span class="t-ticker">${r.label}</span><span class="t-name">${r.name}</span></td>
+        <td><span class="t-ticker">${r.label}</span><span class="t-name">${r.name} <span class="mono dim">· ${r.start_year || ''} (${r.years}Y)</span></span></td>
         <td>${badge(r._sig.state)}${r._sig.state !== "NONE" ? `<span class="when" style="text-align:left">${r._sig.when}</span>` : ""}</td>
         <td class="num">${r.live.z20.toFixed(2)}</td>
         <td class="num ${cls(r.live.roc14)}">${fmtPct(r.live.roc14)}</td>
@@ -243,11 +243,16 @@
     $("#dBody").innerHTML = `
       <p class="eyebrow mono">${r.kind} · ${r.category}</p>
       <div class="d-ticker" id="dTitle">${r.label}</div>
-      <p class="d-name">${r.name} · ${r.symbol}</p>
+      <p class="d-name">${r.name} · ${r.symbol} <span class="mono dim">· Since ${r.start_year || '—'} (${r.years || '—'} years of data)</span></p>
       <div class="d-row">${badge(r._sig.state)}<span class="tier tier-${r.tier}">Tier ${r.tier} · ${r.verdict}</span></div>
       <div class="d-chart"><div class="d-cap">Two years · weekly close · dots mark triggers</div>${priceChart(r)}</div>
       <div class="d-chart"><div class="d-cap">20-week Z-score · −1.35 Pullback · −2.40 XL</div>${zChart(r)}</div>
-      <div class="d-stats"><div><h4>All pullbacks · 10Y</h4>${dl(r.pb)}</div><div><h4>Pullback XL · 10Y</h4>${dl(r.xl)}</div></div>
+      <div class="d-stats">
+        <div><h4>All-time Pullbacks (${r.start_year}–2026)</h4>${dl(r.pb)}</div>
+        <div><h4>All-time Pullback XL (${r.start_year}–2026)</h4>${dl(r.xl)}</div>
+        <div><h4>Recent 10Y Pullbacks</h4>${dl(r.pb_10y || r.pb)}</div>
+        <div><h4>Recent 10Y Pullback XL</h4>${dl(r.xl_10y || r.xl)}</div>
+      </div>
       <table class="d-events"><thead><tr><th>Trigger</th><th>Type</th><th class="num">Z</th><th class="num">6M</th><th class="num">1Y</th><th class="num">3M dip</th></tr></thead><tbody>${evRows || '<tr><td colspan="6" class="dim">No triggers in the window</td></tr>'}</tbody></table>
       <a class="btn btn-blue d-tv" href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.tv)}&interval=1W" target="_blank" rel="noopener">Open weekly chart in TradingView ↗</a>`;
     $("#drawer").classList.add("open");
@@ -275,6 +280,7 @@
   }
 
   /* ── Pareto Quadrant Chart ─────────────────────────────────────────── */
+  let paretoHorizon = "all";
   let paretoSig = "pb";
   let paretoU = "all";
 
@@ -285,12 +291,14 @@
 
     const list = DATA.instruments.filter((r) => {
       if (paretoU !== "all" && r.kind !== paretoU) return false;
-      const s = r[paretoSig];
+      const s = paretoHorizon === "10y" ? (paretoSig === "xl" ? r.xl_10y : r.pb_10y) : r[paretoSig];
       return s && s.win_1y !== null && s.count_1y >= 2;
     });
 
     const pts = list.map((r) => {
-      const s = r[paretoSig];
+      const s = paretoHorizon === "10y" ? (paretoSig === "xl" ? r.xl_10y : r.pb_10y) : r[paretoSig];
+      const tier = paretoHorizon === "10y" ? r.tier_10y : r.tier;
+      const verdict = paretoHorizon === "10y" ? r.verdict_10y : r.verdict;
       return {
         r,
         symbol: r.symbol,
@@ -298,13 +306,15 @@
         name: r.name,
         kind: r.kind,
         category: r.category,
-        tier: r.tier,
-        verdict: r.verdict,
+        tier: tier || r.tier,
+        verdict: verdict || r.verdict,
         x: s.win_1y,
         y: s.med_1y,
         n: s.count_1y,
         dd: s.med_dd_3m,
         med_2y: s.med_2y,
+        years: r.years,
+        start_year: r.start_year,
       };
     });
 
@@ -456,7 +466,9 @@
       const sym = grp.dataset.sym;
       const r = DATA.instruments.find((x) => x.symbol === sym);
       if (!r) return;
-      const s = r[paretoSig];
+      const s = paretoHorizon === "10y" ? (paretoSig === "xl" ? r.xl_10y : r.pb_10y) : r[paretoSig];
+      const tier = paretoHorizon === "10y" ? r.tier_10y : r.tier;
+      const verdict = paretoHorizon === "10y" ? r.verdict_10y : r.verdict;
       const rect = wrap.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -466,15 +478,15 @@
       tt.innerHTML = `
         <div class="tt-top">
           <span class="tt-sym">${r.label}</span>
-          <span class="tt-tier">Tier ${r.tier} · ${r.verdict}</span>
+          <span class="tt-tier">Tier ${tier} · ${verdict}</span>
         </div>
         <div class="tt-name">${r.name}</div>
         <dl>
+          <dt>Sample base</dt><dd class="dim">${s.count_1y} signals · ${paretoHorizon === "10y" ? "Last 10Y" : (r.years || '—') + "Y (since " + (r.start_year || '—') + ")"}</dd>
           <dt>1Y Win Rate</dt><dd class="${cls(s.win_1y - 50)}">${Math.round(s.win_1y)}%</dd>
           <dt>Median 1Y</dt><dd class="${cls(s.med_1y)}">${fmtPct(s.med_1y)}</dd>
           <dt>Median 2Y</dt><dd>${fmtPct(s.med_2y)}</dd>
           <dt>3M Dip</dt><dd class="dim">${fmtPct(s.med_dd_3m)}</dd>
-          <dt>Signals</dt><dd>${s.count_1y} (10Y)</dd>
         </dl>
       `;
       tt.hidden = false;
@@ -482,6 +494,13 @@
 
     svg.addEventListener("mouseleave", () => {
       tt.hidden = true;
+    });
+    $("#paretoHorizon").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      paretoHorizon = b.dataset.h;
+      document.querySelectorAll("#paretoHorizon button").forEach((x) => x.classList.toggle("on", x === b));
+      renderPareto();
     });
     $("#filters").addEventListener("click", (e) => {
       const b = e.target.closest("button");

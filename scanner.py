@@ -166,10 +166,16 @@ def analyse(item: tuple, kind: str, close: pd.Series) -> dict[str, Any]:
                          sma50.iloc[i], z20.iloc[i], roc14.iloc[i], roc14.iloc[i - 1])
 
     n = len(close)
-    start = max(50, n - 522)
+    start = 50
+    start_10y = max(50, n - 522)
+    history_start = close.index[start].strftime("%Y-%m-%d")
+    years = round((close.index[-1] - close.index[start]).days / 365.25, 1)
+    start_year = int(close.index[start].strftime("%Y"))
     ep_pb = ep_xl = False
-    pb_sigs: list[dict[str, Any]] = []
-    xl_sigs: list[dict[str, Any]] = []
+    pb_sigs_all: list[dict[str, Any]] = []
+    xl_sigs_all: list[dict[str, Any]] = []
+    pb_sigs_10y: list[dict[str, Any]] = []
+    xl_sigs_10y: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
 
     for i in range(start, n):
@@ -198,16 +204,24 @@ def analyse(item: tuple, kind: str, close: pd.Series) -> dict[str, Any]:
         new_xl = is_xl and not ep_xl
         if new_pb:
             ep_pb = True
-            pb_sigs.append(entry)
+            pb_sigs_all.append(entry)
+            if i >= start_10y:
+                pb_sigs_10y.append(entry)
         if new_xl:
             ep_xl = True
-            xl_sigs.append(entry)
+            xl_sigs_all.append(entry)
+            if i >= start_10y:
+                xl_sigs_10y.append(entry)
         if new_pb or new_xl:
             events.append({**entry, "type": "PULLBACK XL" if new_xl else "PULLBACK"})
 
-    pb = summarise(pb_sigs)
-    xl = summarise(xl_sigs)
+    pb = summarise(pb_sigs_all)
+    xl = summarise(xl_sigs_all)
     tier, verdict = tier_for(pb, xl)
+
+    pb_10y = summarise(pb_sigs_10y)
+    xl_10y = summarise(xl_sigs_10y)
+    tier_10y, verdict_10y = tier_for(pb_10y, xl_10y)
 
     closed_state = state_at(n - 2)
     live_state = state_at(n - 1)
@@ -225,6 +239,9 @@ def analyse(item: tuple, kind: str, close: pd.Series) -> dict[str, Any]:
         "category": category,
         "kind": kind,
         "weeks": n,
+        "history_start": history_start,
+        "start_year": start_year,
+        "years": years,
         "price": float(close.iloc[-1]),
         "closed": {"date": close.index[-2].strftime("%Y-%m-%d"), "state": closed_state,
                    "z20": float(z20.iloc[-2]), "roc14": float(roc14.iloc[-2])},
@@ -238,7 +255,11 @@ def analyse(item: tuple, kind: str, close: pd.Series) -> dict[str, Any]:
         "xl": xl,
         "tier": tier,
         "verdict": verdict,
-        "events": events[-12:],
+        "pb_10y": pb_10y,
+        "xl_10y": xl_10y,
+        "tier_10y": tier_10y,
+        "verdict_10y": verdict_10y,
+        "events": events[-50:],
         "history": {
             "dates": [d.strftime("%Y-%m-%d") for d in close.index[h:]],
             "close": [float(v) for v in close.iloc[h:]],
@@ -250,8 +271,8 @@ def analyse(item: tuple, kind: str, close: pd.Series) -> dict[str, Any]:
 def main() -> None:
     items = [(e, "ETF") for e in ETFS] + [(s, "Stock") for s in STOCKS]
     symbols = [i[0][1] for i in items]
-    print(f"Downloading 15 years of weekly data for {len(symbols)} instruments")
-    raw = yf.download(symbols, period="15y", interval="1wk", progress=False, auto_adjust=True)
+    print(f"Downloading all-time weekly data for {len(symbols)} instruments")
+    raw = yf.download(symbols, period="max", interval="1wk", progress=False, auto_adjust=True)
     rows, failed = [], []
     for item, kind in items:
         try:
