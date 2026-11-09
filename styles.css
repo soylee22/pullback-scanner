@@ -106,7 +106,7 @@ h1 {
 .stat .s { font-size: 13px; color: var(--grey-2); }
 
 /* Sections */
-.section { padding-top: 120px; }
+.section { padding-top: 120px; scroll-margin-top: 80px; }
 .section-hd { display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; flex-wrap: wrap; margin-bottom: 36px; }
 h2 { font-size: clamp(36px, 5vw, 64px); font-weight: 500; letter-spacing: -0.04em; line-height: 0.98; }
 .section-note { max-width: 380px; color: var(--grey-1); font-size: 15px; }
