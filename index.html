@@ -25,6 +25,7 @@
     </a>
     <div class="nav-links">
       <a href="#signals">Signals</a>
+      <a href="#pareto">Pareto</a>
       <a href="#universe">Universe</a>
       <a href="#method">Method</a>
     </div>
@@ -64,10 +65,51 @@
   <p class="empty" id="cardsEmpty" hidden>No Tier 1 or 2 signals this week. Patience is the position.</p>
 </section>
 
+<section class="wrap section" id="pareto">
+  <div class="section-hd">
+    <div>
+      <p class="eyebrow mono">02 · Alpha Quadrant</p>
+      <h2>Pareto frontier</h2>
+    </div>
+    <div class="controls">
+      <div class="seg" role="tablist" id="paretoSignal">
+        <button class="on" data-sig="pb">Pullback (SMR)</button>
+        <button data-sig="xl">Pullback XL (SMRRoC)</button>
+      </div>
+      <div class="seg" role="tablist" id="paretoUniverse">
+        <button class="on" data-u="all">All</button>
+        <button data-u="ETF">ETFs</button>
+        <button data-u="Stock">Stocks</button>
+      </div>
+    </div>
+  </div>
+  <p class="section-note">1-year forward median return plotted against historical 1-year win rate. The top-right quadrant isolates Tier 1 alpha compounders (Win Rate ≥ 80% and 1Y Return ≥ 15%). The dashed boundary marks the empirical Pareto frontier where no higher return exists without sacrificing win rate. Click any node to inspect.</p>
+  
+  <div class="pareto-card">
+    <div class="pareto-chart-wrap" id="paretoChartWrap">
+      <svg id="paretoSvg" class="pareto-svg" viewBox="0 0 960 520" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="paretoTooltip" class="pareto-tooltip" hidden></div>
+    </div>
+    <div class="pareto-footer">
+      <div class="pareto-legend">
+        <span><span class="p-dot dot-t1"></span>Tier 1 Alpha</span>
+        <span><span class="p-dot dot-t2"></span>Tier 2 XL</span>
+        <span><span class="p-dot dot-t3"></span>Tier 3 Selective</span>
+        <span><span class="p-dot dot-t4"></span>Tier 4 Avoid</span>
+        <span><span class="p-frontier-line"></span>Pareto Frontier</span>
+      </div>
+      <div class="pareto-frontier-tags">
+        <span class="mono dim">Frontier assets:</span>
+        <div id="paretoTags" class="frontier-pills"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="wrap section" id="universe">
   <div class="section-hd">
     <div>
-      <p class="eyebrow mono">02 · Universe</p>
+      <p class="eyebrow mono">03 · Universe</p>
       <h2>All 54 instruments</h2>
     </div>
     <div class="controls">
@@ -105,7 +147,7 @@
 <section class="wrap section" id="method">
   <div class="section-hd">
     <div>
-      <p class="eyebrow mono">03 · Method</p>
+      <p class="eyebrow mono">04 · Method</p>
       <h2>Three conditions.<br>One weekly close.</h2>
     </div>
   </div>

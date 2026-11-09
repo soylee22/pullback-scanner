@@ -274,7 +274,215 @@
     $("#heroStamp").textContent = `Weekly close · scanned ${gen.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`;
   }
 
+  /* ── Pareto Quadrant Chart ─────────────────────────────────────────── */
+  let paretoSig = "pb";
+  let paretoU = "all";
+
+  function renderPareto() {
+    if (!DATA) return;
+    const svg = $("#paretoSvg");
+    if (!svg) return;
+
+    const list = DATA.instruments.filter((r) => {
+      if (paretoU !== "all" && r.kind !== paretoU) return false;
+      const s = r[paretoSig];
+      return s && s.win_1y !== null && s.count_1y >= 2;
+    });
+
+    const pts = list.map((r) => {
+      const s = r[paretoSig];
+      return {
+        r,
+        symbol: r.symbol,
+        label: r.label,
+        name: r.name,
+        kind: r.kind,
+        category: r.category,
+        tier: r.tier,
+        verdict: r.verdict,
+        x: s.win_1y,
+        y: s.med_1y,
+        n: s.count_1y,
+        dd: s.med_dd_3m,
+        med_2y: s.med_2y,
+      };
+    });
+
+    if (!pts.length) {
+      svg.innerHTML = '<text x="480" y="260" fill="#777" font-family="JetBrains Mono" font-size="14" text-anchor="middle">No instruments match the selected filters</text>';
+      $("#paretoTags").innerHTML = "";
+      return;
+    }
+
+    // Sort descending by Win Rate, then descending by 1Y Median Return
+    const sorted = [...pts].sort((a, b) => b.x - a.x || b.y - a.y);
+    const frontier = [];
+    let maxY = -Infinity;
+    for (const p of sorted) {
+      if (p.y > maxY) {
+        frontier.push(p);
+        maxY = p.y;
+      }
+    }
+    const frontierSet = new Set(frontier.map((p) => p.label));
+
+    // Update frontier pills
+    $("#paretoTags").innerHTML = frontier
+      .map((p) => `<button class="f-pill" data-sym="${p.symbol}">${p.label} <span class="dim">${Math.round(p.x)}% · +${Math.round(p.y)}%</span></button>`)
+      .join("");
+
+    // SVG coordinate space
+    const W = 960, H = 520;
+    const padL = 60, padR = 40, padT = 40, padB = 55;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const xMin = 20, xMax = 104;
+    const allY = pts.map((p) => p.y);
+    const minYRaw = Math.min(...allY);
+    const maxYRaw = Math.max(...allY);
+    const yMin = Math.min(-10, Math.floor(minYRaw / 10) * 10);
+    const yMax = Math.max(50, Math.ceil(maxYRaw / 10) * 10 + 5);
+
+    const toX = (val) => padL + ((val - xMin) / (xMax - xMin)) * plotW;
+    const toY = (val) => padT + ((yMax - val) / (yMax - yMin)) * plotH;
+
+    const x80 = toX(80);
+    const y15 = toY(15);
+    const x100 = toX(100);
+
+    let html = `<defs>
+      <linearGradient id="pGlow" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#1E6EF3" stop-opacity="0.12"/>
+        <stop offset="1" stop-color="#1E6EF3" stop-opacity="0"/>
+      </linearGradient>
+    </defs>`;
+
+    // Subtle Alpha Quadrant tint
+    html += `<rect x="${x80}" y="${padT}" width="${x100 - x80}" height="${Math.max(0, y15 - padT)}" fill="#1E6EF3" fill-opacity="0.05" rx="2"/>`;
+
+    // Quadrant watermarks
+    html += `<text x="${x80 + 12}" y="${padT + 22}" fill="#1E6EF3" font-family="JetBrains Mono" font-size="10.5" letter-spacing="0.08em" font-weight="600" opacity="0.8">ALPHA TIER · WIN ≥ 80% · 1Y RET ≥ 15%</text>`;
+    html += `<text x="${padL + 12}" y="${padT + 22}" fill="#555" font-family="JetBrains Mono" font-size="10" letter-spacing="0.08em" opacity="0.6">HIGH BETA / MOMENTUM · WIN &lt; 80%</text>`;
+    html += `<text x="${x80 + 12}" y="${H - padB - 14}" fill="#555" font-family="JetBrains Mono" font-size="10" letter-spacing="0.08em" opacity="0.6">DEFENSIVE · 1Y RET &lt; 15%</text>`;
+    html += `<text x="${padL + 12}" y="${H - padB - 14}" fill="#444" font-family="JetBrains Mono" font-size="10" letter-spacing="0.08em" opacity="0.5">SUB-OPTIMAL / AVOID</text>`;
+
+    // Grid lines for X (every 20% from 20 to 100)
+    for (let xVal = 20; xVal <= 100; xVal += 20) {
+      const gx = toX(xVal);
+      html += `<line x1="${gx}" y1="${padT}" x2="${gx}" y2="${H - padB}" stroke="#1f1f1f" stroke-width="1"/>`;
+      html += `<text x="${gx}" y="${H - padB + 20}" fill="#777" font-family="JetBrains Mono" font-size="11" text-anchor="middle">${xVal}%</text>`;
+    }
+    html += `<text x="${padL + plotW / 2}" y="${H - 12}" fill="#999" font-family="JetBrains Mono" font-size="11" text-anchor="middle" letter-spacing="0.06em">HISTORICAL 1-YEAR WIN RATE</text>`;
+
+    // Grid lines for Y
+    const yStep = yMax - yMin > 80 ? 20 : 10;
+    const yStart = Math.ceil(yMin / yStep) * yStep;
+    for (let yVal = yStart; yVal <= yMax; yVal += yStep) {
+      const gy = toY(yVal);
+      html += `<line x1="${padL}" y1="${gy}" x2="${W - padR}" y2="${gy}" stroke="#1f1f1f" stroke-width="1"/>`;
+      html += `<text x="${padL - 10}" y="${gy + 4}" fill="#777" font-family="JetBrains Mono" font-size="11" text-anchor="end">${yVal > 0 ? "+" : ""}${yVal}%</text>`;
+    }
+    html += `<text x="${padL - 42}" y="${padT + plotH / 2}" fill="#999" font-family="JetBrains Mono" font-size="11" text-anchor="middle" transform="rotate(-90 ${padL - 42} ${padT + plotH / 2})" letter-spacing="0.06em">MEDIAN 1-YEAR RETURN</text>`;
+
+    // Benchmark crosshairs (80% Win Rate, 15% 1Y Return)
+    html += `<line x1="${x80}" y1="${padT}" x2="${x80}" y2="${H - padB}" stroke="#1E6EF3" stroke-width="1.2" stroke-dasharray="4 4" stroke-opacity="0.6"/>`;
+    html += `<line x1="${padL}" y1="${y15}" x2="${W - padR}" y2="${y15}" stroke="#1E6EF3" stroke-width="1.2" stroke-dasharray="4 4" stroke-opacity="0.6"/>`;
+    html += `<text x="${x80}" y="${padT - 10}" fill="#1E6EF3" font-family="JetBrains Mono" font-size="10.5" text-anchor="middle" font-weight="600">80% TIER 1 CUTOFF</text>`;
+
+    // Pareto frontier dashed curve
+    if (frontier.length > 1) {
+      const fPath = frontier.map((p, i) => `${i ? "L" : "M"}${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`).join(" ");
+      html += `<path d="${fPath}" fill="none" stroke="#1E6EF3" stroke-width="2.2" stroke-dasharray="5 4" stroke-opacity="0.85"/>`;
+    }
+
+    // Nodes
+    const tierColors = { 1: "#1E6EF3", 2: "#FFB800", 3: "#888888", 4: "#FF3344" };
+
+    const renderNode = (p) => {
+      const cx = toX(p.x).toFixed(1);
+      const cy = toY(p.y).toFixed(1);
+      const col = tierColors[p.tier] || "#888";
+      const isFrontier = frontierSet.has(p.label);
+
+      let nodeHtml = `<g class="p-node-group" data-sym="${p.symbol}" data-label="${p.label}">`;
+      if (isFrontier) {
+        nodeHtml += `<circle cx="${cx}" cy="${cy}" r="10" fill="none" stroke="#1E6EF3" stroke-width="1.5" stroke-opacity="0.7"/>`;
+      }
+      nodeHtml += `<circle class="p-node-dot" cx="${cx}" cy="${cy}" r="${isFrontier ? 6 : 4.8}" fill="${col}" stroke="#000" stroke-width="1.5"/>`;
+
+      const prominent = isFrontier || p.label === "SSLN" || p.label === "VUAG" || p.label === "CNX1" || p.label === "COST" || p.label === "NVDA" || (p.tier === 1 && p.x === 100);
+      if (prominent) {
+        const xOffset = p.x > 95 ? -10 : 10;
+        const anchor = p.x > 95 ? "end" : "start";
+        nodeHtml += `<text x="${(parseFloat(cx) + xOffset).toFixed(1)}" y="${(parseFloat(cy) + 4).toFixed(1)}" fill="${isFrontier ? '#fff' : '#aaa'}" font-family="JetBrains Mono" font-size="11" font-weight="${isFrontier ? '700' : '500'}" text-anchor="${anchor}">${p.label}</text>`;
+      }
+      nodeHtml += `</g>`;
+      return nodeHtml;
+    };
+
+    pts.filter((p) => !frontierSet.has(p.label)).forEach((p) => (html += renderNode(p)));
+    frontier.forEach((p) => (html += renderNode(p)));
+
+    svg.innerHTML = html;
+  }
+
   function wire() {
+    $("#paretoSignal").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      paretoSig = b.dataset.sig;
+      document.querySelectorAll("#paretoSignal button").forEach((x) => x.classList.toggle("on", x === b));
+      renderPareto();
+    });
+    $("#paretoUniverse").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      paretoU = b.dataset.u;
+      document.querySelectorAll("#paretoUniverse button").forEach((x) => x.classList.toggle("on", x === b));
+      renderPareto();
+    });
+
+    const svg = $("#paretoSvg");
+    const tt = $("#paretoTooltip");
+    const wrap = $("#paretoChartWrap");
+
+    svg.addEventListener("mousemove", (e) => {
+      const grp = e.target.closest(".p-node-group");
+      if (!grp) {
+        tt.hidden = true;
+        return;
+      }
+      const sym = grp.dataset.sym;
+      const r = DATA.instruments.find((x) => x.symbol === sym);
+      if (!r) return;
+      const s = r[paretoSig];
+      const rect = wrap.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      tt.style.left = `${x}px`;
+      tt.style.top = `${y}px`;
+      tt.innerHTML = `
+        <div class="tt-top">
+          <span class="tt-sym">${r.label}</span>
+          <span class="tt-tier">Tier ${r.tier} · ${r.verdict}</span>
+        </div>
+        <div class="tt-name">${r.name}</div>
+        <dl>
+          <dt>1Y Win Rate</dt><dd class="${cls(s.win_1y - 50)}">${Math.round(s.win_1y)}%</dd>
+          <dt>Median 1Y</dt><dd class="${cls(s.med_1y)}">${fmtPct(s.med_1y)}</dd>
+          <dt>Median 2Y</dt><dd>${fmtPct(s.med_2y)}</dd>
+          <dt>3M Dip</dt><dd class="dim">${fmtPct(s.med_dd_3m)}</dd>
+          <dt>Signals</dt><dd>${s.count_1y} (10Y)</dd>
+        </dl>
+      `;
+      tt.hidden = false;
+    });
+
+    svg.addEventListener("mouseleave", () => {
+      tt.hidden = true;
+    });
     $("#filters").addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
@@ -309,6 +517,7 @@
       DATA.instruments.forEach((r) => (r._sig = currentSignal(r)));
       renderHeader();
       renderCards();
+      renderPareto();
       renderTable();
     })
     .catch((err) => {
