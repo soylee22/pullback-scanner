@@ -19,6 +19,8 @@ class EvidenceTests(unittest.TestCase):
   for z in [-1.1,-1.35,-2.4]:
    x=threshold_price(p,z);a=np.r_[p,x];self.assertAlmostEqual((x-a.mean())/a.std(),z,places=10)
  def test_constant_threshold_unavailable(self):self.assertIsNone(threshold_price([10]*19,-1.35))
+ def test_missing_fx_does_not_inflate_sample(self):
+  self.assertEqual(summary([{'ret_1y':float('nan')},{'ret_1y':12}])['count_1y'],1)
  def test_small_samples_never_top_tier(self):
   s=summary([{'ret_1y':20}]*3);self.assertEqual(tier(s,s,10)[0],3);self.assertAlmostEqual(wilson(3,3)[0],43.85,places=1)
  def test_positive_returns_need_baseline_edge(self):

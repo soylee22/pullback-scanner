@@ -53,9 +53,9 @@ def wilson(w,n):
     return [(mid-half)*100,(mid+half)*100]
 
 def summary(events):
-    vals=[e['ret_1y'] for e in events if e.get('ret_1y') is not None]
+    vals=[e['ret_1y'] for e in events if e.get('ret_1y') is not None and math.isfinite(e['ret_1y'])]
     n=len(vals);w=sum(v>0 for v in vals)
-    med=lambda key:float(np.median([e[key] for e in events if e.get(key) is not None])) if any(e.get(key) is not None for e in events) else None
+    med=lambda key:float(np.median([e[key] for e in events if e.get(key) is not None and math.isfinite(e[key])])) if any(e.get(key) is not None and math.isfinite(e[key]) for e in events) else None
     return {'count':len(events),'count_1y':n,'win_1y':w/n*100 if n else None,'wilson':wilson(w,n),
             'med_1y':float(np.median(vals)) if n else None,'med_6m':med('ret_6m'),'med_2y':med('ret_2y'),
             'distribution':list(np.percentile(vals,[0,25,50,75,100])) if n else [],
@@ -163,7 +163,7 @@ def analyse(frame, fx, benchmark, now=None):
             'closed':{'date':closed_date,'state':state(f,len(f)-1),'z20':last.z,'roc14':last.roc,'trigger':fresh['type'] if fresh else None},
             'live':{'date':str(frame.index[-1].date()),'state':state(current,len(current)-1),'z20':ls.z,'roc14':ls.roc,'provisional':bool(len(live))},
             'price':float(frame.Close.iloc[-1]),'vs_sma50':(ls.close/ls.s50-1)*100,
-            'radar':{'pb_price':threshold_price(frame.Close.iloc[:-1],-1.35),'xl_price':threshold_price(frame.Close.iloc[:-1],-2.4),
+            'radar':{'pb_price':threshold_price(frame.Close.iloc[:-1] if len(live) else frame.Close,-1.35),'xl_price':threshold_price(frame.Close.iloc[:-1] if len(live) else frame.Close,-2.4),
                      'conditions':int(ls.close<ls.s20)+int(ls.close<ls.s50)+int(current.close.iloc[-2]<current.s14.iloc[-2])+int(ls.roc<0 or current.roc.iloc[-2]<0),
                      'z52':ls.z52},
             'events':events,'last_event':last_event,'weeks':len(c),'years':round(len(c)/52,1),'start_year':c.index[50].year,
