@@ -1,545 +1,88 @@
-/* Pullback scanner front end. Reads data/scan.json produced by scanner.py. */
-(function () {
-  "use strict";
-
-  const $ = (s, el = document) => el.querySelector(s);
-  const fmtPct = (v, d = 1) => (v === null || v === undefined ? "–" : (v >= 0 ? "+" : "") + v.toFixed(d) + "%");
-  const cls = (v) => (v === null || v === undefined ? "dim" : v >= 0 ? "pos" : "neg");
-
-  /* ── Hero field: vertical dashes on drifting wave arcs ─────────────── */
-  function startField() {
-    const cv = $("#field");
-    const ctx = cv.getContext("2d");
-    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let w, h, dpr, cols, rows, accents;
-
-    function resize() {
-      dpr = Math.min(devicePixelRatio || 1, 2);
-      w = cv.clientWidth; h = cv.clientHeight;
-      cv.width = w * dpr; cv.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      cols = Math.ceil(w / 26) + 2;
-      rows = Math.ceil(h / 52) + 2;
-      accents = new Set();
-      for (let i = 0; i < Math.round(cols * rows * 0.012); i++) accents.add(Math.floor(Math.random() * cols * rows));
-    }
-
-    function draw(t) {
-      ctx.clearRect(0, 0, w, h);
-      const time = t * 0.00012;
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const nx = c / cols, ny = r / rows;
-          // Concentric arcs centred low in the frame, gently breathing.
-          const dx = (nx - 0.5) * 1.6, dy = ny - 1.05;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const wave = Math.sin(dist * 22 - time * 14);
-          const x = c * 26 + Math.sin(dist * 9 - time * 6) * 9;
-          const y = r * 52 + (c % 2) * 26;
-          const vis = (wave + 1) / 2;
-          if (vis < 0.35) continue;
-          const fade = Math.min(1, ny * 1.25) * (0.25 + vis * 0.75);
-          const accent = accents.has(r * cols + c);
-          ctx.fillStyle = accent ? `rgba(30,110,243,${0.95 * fade})` : `rgba(160,169,177,${0.55 * fade})`;
-          ctx.fillRect(x, y, 2, 26 + vis * 10);
-        }
-      }
-      if (!reduce) requestAnimationFrame(draw);
-    }
-
-    resize();
-    addEventListener("resize", resize);
-    requestAnimationFrame(draw);
-  }
-
-  /* ── Split headline reveal ─────────────────────────────────────────── */
-  function splitHeadline() {
-    document.querySelectorAll(".split").forEach((el) => {
-      el.innerHTML = el.innerHTML
-        .split(/(<br>)/)
-        .map((part) => (part === "<br>" ? part : part.split(" ").filter(Boolean).map((wd) => `<span class="w"><span>${wd}</span></span>`).join(" ")))
-        .join("");
-      el.querySelectorAll(".w > span").forEach((s, i) => (s.style.transitionDelay = 120 + i * 70 + "ms"));
-      requestAnimationFrame(() => el.classList.add("in"));
-    });
-  }
-
-  /* ── Signal helpers ────────────────────────────────────────────────── */
-  const STRENGTH = { "PULLBACK XL": 3, PULLBACK: 2, "ABOVE 50W": 1, NEAR: 1 };
-
-  function currentSignal(r) {
-    // Strongest of the closed bar, the live bar, or an episode trigger in the last two weeks.
-    let best = { state: "NONE", when: "" };
-    const consider = (state, when) => {
-      if ((STRENGTH[state] || 0) > (STRENGTH[best.state] || 0)) best = { state, when };
-    };
-    consider(r.closed.state, "Closed " + shortDate(r.closed.date));
-    consider(r.live.state, "Live this week");
-    if (r.last_event && r.weeks_since_event !== null && r.weeks_since_event <= 2) consider(r.last_event.type, "Fired " + shortDate(r.last_event.date));
-    return best;
-  }
-
-  function shortDate(iso) {
-    const d = new Date(iso + "T00:00:00Z");
-    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-  }
-
-  function badge(state) {
-    if (state === "PULLBACK XL") return '<span class="badge b-xl">PULLBACK XL</span>';
-    if (state === "PULLBACK") return '<span class="badge b-pb">PULLBACK</span>';
-    if (state === "ABOVE 50W") return '<span class="badge b-watch">WATCH · ABOVE 50W</span>';
-    if (state === "NEAR") return '<span class="badge b-watch">NEAR</span>';
-    return '<span class="badge b-none">—</span>';
-  }
-
-  function stat(s) {
-    if (!s || s.med_1y === null) return `<span class="dim">n=${s ? s.count : 0}</span>`;
-    return `<span class="${cls(s.med_1y)}">${fmtPct(s.med_1y)}</span> <span class="dim">${Math.round(s.win_1y)}% · ${s.count}</span>`;
-  }
-
-  /* ── Charts ────────────────────────────────────────────────────────── */
-  function spark(values, events, dates, height = 64, width = 300) {
-    const v = values.filter((x) => x !== null);
-    if (v.length < 2) return "";
-    const min = Math.min(...v), max = Math.max(...v);
-    const x = (i) => (i / (values.length - 1)) * width;
-    const y = (val) => height - 4 - ((val - min) / (max - min || 1)) * (height - 8);
-    const d = values.map((val, i) => (val === null ? "" : `${i ? "L" : "M"}${x(i).toFixed(1)},${y(val).toFixed(1)}`)).join("");
-    const marks = (events || [])
-      .map((e) => {
-        const i = dates.indexOf(e.date);
-        if (i < 0) return "";
-        return `<circle cx="${x(i)}" cy="${y(values[i])}" r="3.2" fill="${e.type === "PULLBACK XL" ? "#1E6EF3" : "#fff"}"/>`;
-      })
-      .join("");
-    return `<svg class="card-spark" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="#a0a9b1" stroke-width="1.4" vector-effect="non-scaling-stroke"/>${marks}</svg>`;
-  }
-
-  function priceChart(r) {
-    const W = 600, H = 220, P = 10;
-    const c = r.history.close, dates = r.history.dates;
-    const min = Math.min(...c), max = Math.max(...c);
-    const x = (i) => P + (i / (c.length - 1)) * (W - 2 * P);
-    const y = (v) => H - P - ((v - min) / (max - min || 1)) * (H - 2 * P);
-    const path = c.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-    const area = path + `L${x(c.length - 1)},${H}L${x(0)},${H}Z`;
-    const marks = r.events
-      .map((e) => {
-        const i = dates.indexOf(e.date);
-        if (i < 0) return "";
-        const col = e.type === "PULLBACK XL" ? "#1E6EF3" : "#fff";
-        return `<line x1="${x(i)}" x2="${x(i)}" y1="${P}" y2="${H}" stroke="${col}" stroke-opacity=".25"/><circle cx="${x(i)}" cy="${y(c[i])}" r="4.5" fill="${col}" stroke="#000" stroke-width="1.5"/>`;
-      })
-      .join("");
-    return `<svg viewBox="0 0 ${W} ${H}"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E6EF3" stop-opacity=".22"/><stop offset="1" stop-color="#1E6EF3" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#g)"/><path d="${path}" fill="none" stroke="#fff" stroke-width="1.6"/>${marks}</svg>`;
-  }
-
-  function zChart(r) {
-    const W = 600, H = 150, P = 10;
-    const z = r.history.z20;
-    const lo = Math.min(-3.2, ...z.filter((v) => v !== null)), hi = Math.max(3, ...z.filter((v) => v !== null));
-    const x = (i) => P + (i / (z.length - 1)) * (W - 2 * P);
-    const y = (v) => P + ((hi - v) / (hi - lo)) * (H - 2 * P);
-    const path = z.map((v, i) => (v === null ? "" : `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`)).join("");
-    const line = (v, col, dash) => `<line x1="${P}" x2="${W - P}" y1="${y(v)}" y2="${y(v)}" stroke="${col}" stroke-dasharray="${dash}" stroke-width="1"/><text x="${W - P - 2}" y="${y(v) - 4}" fill="${col}" font-size="10" text-anchor="end" font-family="JetBrains Mono">${v.toFixed(2)}</text>`;
-    return `<svg viewBox="0 0 ${W} ${H}">${line(0, "#2e2e2e", "0")}${line(-1.35, "#a0a9b1", "4 4")}${line(-2.4, "#1E6EF3", "4 4")}<path d="${path}" fill="none" stroke="#fff" stroke-width="1.4"/></svg>`;
-  }
-
-  /* ── Render ────────────────────────────────────────────────────────── */
-  let DATA = null;
-  let filter = "all";
-  let sortKey = "signal";
-  let sortAsc = false;
-
-  const SORT_LABEL = {
-    signal: "signal strength (XL, then Pullback, then watch), then tier, then Z-score",
-    label: "ticker", z: "20-week Z-score", roc: "14-week rate of change", s50: "distance from the 50-week average",
-    pb: "median one-year return after any pullback", xl: "median one-year return after an XL", dd: "typical three-month dip after entry", tier: "backtest tier",
-  };
-
-  function sortVal(r, k) {
-    switch (k) {
-      case "signal": return (STRENGTH[r._sig.state] || 0) * 1000 + (5 - r.tier) * 100 - r.live.z20;
-      case "label": return r.label;
-      case "z": return r.live.z20;
-      case "roc": return r.live.roc14;
-      case "s50": return r.vs_sma50;
-      case "pb": return r.pb.med_1y ?? -999;
-      case "xl": return r.xl.med_1y ?? -999;
-      case "dd": return r.pb.med_dd_3m ?? -999;
-      case "tier": return r.tier;
-    }
-  }
-
-  function isActionable(r) {
-    return r.tier <= 2 && (STRENGTH[r._sig.state] || 0) >= 2;
-  }
-
-  function renderCards() {
-    const list = DATA.instruments.filter(isActionable).sort((a, b) => sortVal(b, "signal") - sortVal(a, "signal"));
-    $("#cardsEmpty").hidden = list.length > 0;
-    $("#cards").innerHTML = list
-      .map((r) => `
-      <article class="card" data-sym="${r.symbol}">
-        <div class="card-top">
-          <div><div class="card-ticker">${r.label}</div><div class="card-name">${r.name}</div></div>
-          <div>${badge(r._sig.state)}<span class="when">${r._sig.when}</span></div>
-        </div>
-        ${spark(r.history.close.slice(-52), r.events, r.history.dates.slice(-52))}
-        <div class="card-grid">
-          <div><span class="k">20W Z</span><span class="v">${r.live.z20.toFixed(2)}</span></div>
-          <div><span class="k">${r.tier === 2 ? "XL 1Y" : "PB 1Y"}</span><span class="v ${cls(r.tier === 2 ? r.xl.med_1y : r.pb.med_1y)}">${fmtPct(r.tier === 2 ? r.xl.med_1y : r.pb.med_1y)}</span></div>
-          <div><span class="k">Win rate</span><span class="v">${Math.round((r.tier === 2 ? r.xl.win_1y : r.pb.win_1y) ?? 0)}%</span></div>
-        </div>
-        <div class="card-foot"><span>Tier ${r.tier} · ${r.verdict}</span><span>n=${r.tier === 2 ? r.xl.count : r.pb.count} (${r.years}Y) · dip ${fmtPct(r.pb.med_dd_3m)}</span></div>
-      </article>`)
-      .join("");
-  }
-
-  function renderTable() {
-    const q = $("#search").value.trim().toLowerCase();
-    let rows = DATA.instruments.filter((r) => {
-      if (q && !(r.label + " " + r.symbol + " " + r.name + " " + r.category).toLowerCase().includes(q)) return false;
-      if (filter === "active") return (STRENGTH[r._sig.state] || 0) >= 1;
-      if (filter === "t12") return r.tier <= 2;
-      if (filter === "ETF" || filter === "Stock") return r.kind === filter;
-      return true;
-    });
-    rows.sort((a, b) => {
-      const va = sortVal(a, sortKey), vb = sortVal(b, sortKey);
-      const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
-      return sortAsc ? cmp : -cmp;
-    });
-    document.querySelectorAll("th").forEach((th) => {
-      th.classList.toggle("sorted", th.dataset.k === sortKey);
-      th.classList.toggle("asc", th.dataset.k === sortKey && sortAsc);
-    });
-    $("#sortNote").textContent = `Sorted by ${SORT_LABEL[sortKey]} · ${rows.length} shown · click any column to re-sort`;
-    $("#tbl tbody").innerHTML = rows
-      .map((r) => `
-      <tr data-sym="${r.symbol}">
-        <td><span class="t-ticker">${r.label}</span><span class="t-name">${r.name} <span class="mono dim">· ${r.start_year || ''} (${r.years}Y)</span></span></td>
-        <td>${badge(r._sig.state)}${r._sig.state !== "NONE" ? `<span class="when" style="text-align:left">${r._sig.when}</span>` : ""}</td>
-        <td class="num">${r.live.z20.toFixed(2)}</td>
-        <td class="num ${cls(r.live.roc14)}">${fmtPct(r.live.roc14)}</td>
-        <td class="num ${cls(r.vs_sma50)}">${fmtPct(r.vs_sma50)}</td>
-        <td class="num">${stat(r.pb)}</td>
-        <td class="num">${stat(r.xl)}</td>
-        <td class="num dim">${fmtPct(r.pb.med_dd_3m)}</td>
-        <td><span class="tier tier-${r.tier}">${r.verdict}</span></td>
-      </tr>`)
-      .join("");
-  }
-
-  function openDrawer(sym) {
-    const r = DATA.instruments.find((x) => x.symbol === sym);
-    if (!r) return;
-    const evRows = r.events
-      .slice()
-      .reverse()
-      .map((e) => `<tr><td>${shortDate(e.date)} ${e.date.slice(0, 4)}</td><td>${badge(e.type)}</td><td class="num">${e.z20.toFixed(2)}</td><td class="num ${cls(e.ret_6m)}">${fmtPct(e.ret_6m)}</td><td class="num ${cls(e.ret_1y)}">${fmtPct(e.ret_1y)}</td><td class="num dim">${fmtPct(e.dd_3m)}</td></tr>`)
-      .join("");
-    const dl = (s) => `<dl><dt>Signals</dt><dd>${s.count}</dd><dt>Median 6M</dt><dd>${fmtPct(s.med_6m)}</dd><dt>Median 1Y</dt><dd class="${cls(s.med_1y)}">${fmtPct(s.med_1y)}</dd><dt>Median 2Y</dt><dd>${fmtPct(s.med_2y)}</dd><dt>1Y win rate</dt><dd>${s.win_1y === null ? "–" : Math.round(s.win_1y) + "%"}</dd><dt>3M dip</dt><dd>${fmtPct(s.med_dd_3m)}</dd></dl>`;
-    $("#dBody").innerHTML = `
-      <p class="eyebrow mono">${r.kind} · ${r.category}</p>
-      <div class="d-ticker" id="dTitle">${r.label}</div>
-      <p class="d-name">${r.name} · ${r.symbol} <span class="mono dim">· Since ${r.start_year || '—'} (${r.years || '—'} years of data)</span></p>
-      <div class="d-row">${badge(r._sig.state)}<span class="tier tier-${r.tier}">Tier ${r.tier} · ${r.verdict}</span></div>
-      <div class="d-chart"><div class="d-cap">Two years · weekly close · dots mark triggers</div>${priceChart(r)}</div>
-      <div class="d-chart"><div class="d-cap">20-week Z-score · −1.35 Pullback · −2.40 XL</div>${zChart(r)}</div>
-      <div class="d-stats">
-        <div><h4>All-time Pullbacks (${r.start_year}–2026)</h4>${dl(r.pb)}</div>
-        <div><h4>All-time Pullback XL (${r.start_year}–2026)</h4>${dl(r.xl)}</div>
-        <div><h4>Recent 10Y Pullbacks</h4>${dl(r.pb_10y || r.pb)}</div>
-        <div><h4>Recent 10Y Pullback XL</h4>${dl(r.xl_10y || r.xl)}</div>
-      </div>
-      <table class="d-events"><thead><tr><th>Trigger</th><th>Type</th><th class="num">Z</th><th class="num">6M</th><th class="num">1Y</th><th class="num">3M dip</th></tr></thead><tbody>${evRows || '<tr><td colspan="6" class="dim">No triggers in the window</td></tr>'}</tbody></table>
-      <a class="btn btn-blue d-tv" href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.tv)}&interval=1W" target="_blank" rel="noopener">Open weekly chart in TradingView ↗</a>`;
-    $("#drawer").classList.add("open");
-    $("#drawer").setAttribute("aria-hidden", "false");
-  }
-
-  function closeDrawer() {
-    $("#drawer").classList.remove("open");
-    $("#drawer").setAttribute("aria-hidden", "true");
-  }
-
-  function renderHeader() {
-    const list = DATA.instruments;
-    const xl = list.filter((r) => r.tier <= 2 && r._sig.state === "PULLBACK XL").length;
-    const buy = list.filter(isActionable).length;
-    const t1 = list.filter((r) => r.tier === 1).length;
-    const gen = new Date(DATA.generated);
-    $("#stXl").textContent = xl;
-    $("#stBuy").textContent = buy;
-    $("#stT1").textContent = `${t1}/${list.length}`;
-    $("#stTime").textContent = gen.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
-    const top = list.filter(isActionable).sort((a, b) => sortVal(b, "signal") - sortVal(a, "signal")).slice(0, 4).map((r) => r.label);
-    $("#announceText").innerHTML = buy ? `${buy} actionable signals this week: ${top.join(" · ")}${buy > 4 ? " and more" : ""} <a href="#signals">→</a>` : "No Tier 1 or 2 signals this week";
-    $("#heroStamp").textContent = `Weekly close · scanned ${gen.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`;
-  }
-
-  /* ── Pareto Quadrant Chart ─────────────────────────────────────────── */
-  let paretoHorizon = "all";
-  let paretoSig = "pb";
-  let paretoU = "all";
-
-  function renderPareto() {
-    if (!DATA) return;
-    const svg = $("#paretoSvg");
-    if (!svg) return;
-
-    const list = DATA.instruments.filter((r) => {
-      if (paretoU !== "all" && r.kind !== paretoU) return false;
-      const s = paretoHorizon === "10y" ? (paretoSig === "xl" ? r.xl_10y : r.pb_10y) : r[paretoSig];
-      return s && s.win_1y !== null && s.count_1y >= 2;
-    });
-
-    const pts = list.map((r) => {
-      const s = paretoHorizon === "10y" ? (paretoSig === "xl" ? r.xl_10y : r.pb_10y) : r[paretoSig];
-      const tier = paretoHorizon === "10y" ? r.tier_10y : r.tier;
-      const verdict = paretoHorizon === "10y" ? r.verdict_10y : r.verdict;
-      return {
-        r,
-        symbol: r.symbol,
-        label: r.label,
-        name: r.name,
-        kind: r.kind,
-        category: r.category,
-        tier: tier || r.tier,
-        verdict: verdict || r.verdict,
-        x: s.win_1y,
-        y: s.med_1y,
-        n: s.count_1y,
-        dd: s.med_dd_3m,
-        med_2y: s.med_2y,
-        years: r.years,
-        start_year: r.start_year,
-      };
-    });
-
-    if (!pts.length) {
-      svg.innerHTML = '<text x="480" y="260" fill="#777" font-family="JetBrains Mono" font-size="14" text-anchor="middle">No instruments match the selected filters</text>';
-      $("#paretoTags").innerHTML = "";
-      return;
-    }
-
-    // Sort descending by Win Rate, then descending by 1Y Median Return
-    const sorted = [...pts].sort((a, b) => b.x - a.x || b.y - a.y);
-    const frontier = [];
-    let maxY = -Infinity;
-    for (const p of sorted) {
-      if (p.y > maxY) {
-        frontier.push(p);
-        maxY = p.y;
-      }
-    }
-    const frontierSet = new Set(frontier.map((p) => p.label));
-
-    // Update frontier pills
-    $("#paretoTags").innerHTML = frontier
-      .map((p) => `<button class="f-pill" data-sym="${p.symbol}">${p.label} <span class="dim">${Math.round(p.x)}% · +${Math.round(p.y)}%</span></button>`)
-      .join("");
-
-    // SVG coordinate space
-    const W = 960, H = 520;
-    const padL = 60, padR = 40, padT = 40, padB = 55;
-    const plotW = W - padL - padR;
-    const plotH = H - padT - padB;
-
-    const xMin = 20, xMax = 104;
-    const allY = pts.map((p) => p.y);
-    const minYRaw = Math.min(...allY);
-    const maxYRaw = Math.max(...allY);
-    const yMin = Math.min(-10, Math.floor(minYRaw / 10) * 10);
-    const yMax = Math.max(50, Math.ceil(maxYRaw / 10) * 10 + 5);
-
-    const toX = (val) => padL + ((val - xMin) / (xMax - xMin)) * plotW;
-    const toY = (val) => padT + ((yMax - val) / (yMax - yMin)) * plotH;
-
-    const x80 = toX(80);
-    const y15 = toY(15);
-    const x100 = toX(100);
-
-    let html = `<defs>
-      <linearGradient id="pGlow" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#1E6EF3" stop-opacity="0.12"/>
-        <stop offset="1" stop-color="#1E6EF3" stop-opacity="0"/>
-      </linearGradient>
-    </defs>`;
-
-    // Subtle Alpha Quadrant tint
-    html += `<rect x="${x80}" y="${padT}" width="${x100 - x80}" height="${Math.max(0, y15 - padT)}" fill="#1E6EF3" fill-opacity="0.05" rx="2"/>`;
-
-    // Quadrant watermarks
-    html += `<text x="${x80 + 12}" y="${padT + 22}" fill="#1E6EF3" font-family="JetBrains Mono" font-size="10.5" letter-spacing="0.08em" font-weight="600" opacity="0.8">ALPHA TIER · WIN ≥ 80% · 1Y RET ≥ 15%</text>`;
-    html += `<text x="${padL + 12}" y="${padT + 22}" fill="#555" font-family="JetBrains Mono" font-size="10" letter-spacing="0.08em" opacity="0.6">HIGH BETA / MOMENTUM · WIN &lt; 80%</text>`;
-    html += `<text x="${x80 + 12}" y="${H - padB - 14}" fill="#555" font-family="JetBrains Mono" font-size="10" letter-spacing="0.08em" opacity="0.6">DEFENSIVE · 1Y RET &lt; 15%</text>`;
-    html += `<text x="${padL + 12}" y="${H - padB - 14}" fill="#444" font-family="JetBrains Mono" font-size="10" letter-spacing="0.08em" opacity="0.5">SUB-OPTIMAL / AVOID</text>`;
-
-    // Grid lines for X (every 20% from 20 to 100)
-    for (let xVal = 20; xVal <= 100; xVal += 20) {
-      const gx = toX(xVal);
-      html += `<line x1="${gx}" y1="${padT}" x2="${gx}" y2="${H - padB}" stroke="#1f1f1f" stroke-width="1"/>`;
-      html += `<text x="${gx}" y="${H - padB + 20}" fill="#777" font-family="JetBrains Mono" font-size="11" text-anchor="middle">${xVal}%</text>`;
-    }
-    html += `<text x="${padL + plotW / 2}" y="${H - 12}" fill="#999" font-family="JetBrains Mono" font-size="11" text-anchor="middle" letter-spacing="0.06em">HISTORICAL 1-YEAR WIN RATE</text>`;
-
-    // Grid lines for Y
-    const yStep = yMax - yMin > 80 ? 20 : 10;
-    const yStart = Math.ceil(yMin / yStep) * yStep;
-    for (let yVal = yStart; yVal <= yMax; yVal += yStep) {
-      const gy = toY(yVal);
-      html += `<line x1="${padL}" y1="${gy}" x2="${W - padR}" y2="${gy}" stroke="#1f1f1f" stroke-width="1"/>`;
-      html += `<text x="${padL - 10}" y="${gy + 4}" fill="#777" font-family="JetBrains Mono" font-size="11" text-anchor="end">${yVal > 0 ? "+" : ""}${yVal}%</text>`;
-    }
-    html += `<text x="${padL - 42}" y="${padT + plotH / 2}" fill="#999" font-family="JetBrains Mono" font-size="11" text-anchor="middle" transform="rotate(-90 ${padL - 42} ${padT + plotH / 2})" letter-spacing="0.06em">MEDIAN 1-YEAR RETURN</text>`;
-
-    // Benchmark crosshairs (80% Win Rate, 15% 1Y Return)
-    html += `<line x1="${x80}" y1="${padT}" x2="${x80}" y2="${H - padB}" stroke="#1E6EF3" stroke-width="1.2" stroke-dasharray="4 4" stroke-opacity="0.6"/>`;
-    html += `<line x1="${padL}" y1="${y15}" x2="${W - padR}" y2="${y15}" stroke="#1E6EF3" stroke-width="1.2" stroke-dasharray="4 4" stroke-opacity="0.6"/>`;
-    html += `<text x="${x80}" y="${padT - 10}" fill="#1E6EF3" font-family="JetBrains Mono" font-size="10.5" text-anchor="middle" font-weight="600">80% TIER 1 CUTOFF</text>`;
-
-    // Pareto frontier dashed curve
-    if (frontier.length > 1) {
-      const fPath = frontier.map((p, i) => `${i ? "L" : "M"}${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`).join(" ");
-      html += `<path d="${fPath}" fill="none" stroke="#1E6EF3" stroke-width="2.2" stroke-dasharray="5 4" stroke-opacity="0.85"/>`;
-    }
-
-    // Nodes
-    const tierColors = { 1: "#1E6EF3", 2: "#FFB800", 3: "#888888", 4: "#FF3344" };
-
-    const renderNode = (p) => {
-      const cx = toX(p.x).toFixed(1);
-      const cy = toY(p.y).toFixed(1);
-      const col = tierColors[p.tier] || "#888";
-      const isFrontier = frontierSet.has(p.label);
-
-      let nodeHtml = `<g class="p-node-group" data-sym="${p.symbol}" data-label="${p.label}">`;
-      if (isFrontier) {
-        nodeHtml += `<circle cx="${cx}" cy="${cy}" r="10" fill="none" stroke="#1E6EF3" stroke-width="1.5" stroke-opacity="0.7"/>`;
-      }
-      nodeHtml += `<circle class="p-node-dot" cx="${cx}" cy="${cy}" r="${isFrontier ? 6 : 4.8}" fill="${col}" stroke="#000" stroke-width="1.5"/>`;
-
-      const prominent = isFrontier || p.label === "SSLN" || p.label === "VUAG" || p.label === "CNX1" || p.label === "COST" || p.label === "NVDA" || (p.tier === 1 && p.x === 100);
-      if (prominent) {
-        const xOffset = p.x > 95 ? -10 : 10;
-        const anchor = p.x > 95 ? "end" : "start";
-        nodeHtml += `<text x="${(parseFloat(cx) + xOffset).toFixed(1)}" y="${(parseFloat(cy) + 4).toFixed(1)}" fill="${isFrontier ? '#fff' : '#aaa'}" font-family="JetBrains Mono" font-size="11" font-weight="${isFrontier ? '700' : '500'}" text-anchor="${anchor}">${p.label}</text>`;
-      }
-      nodeHtml += `</g>`;
-      return nodeHtml;
-    };
-
-    pts.filter((p) => !frontierSet.has(p.label)).forEach((p) => (html += renderNode(p)));
-    frontier.forEach((p) => (html += renderNode(p)));
-
-    svg.innerHTML = html;
-  }
-
-  function wire() {
-    $("#paretoSignal").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      paretoSig = b.dataset.sig;
-      document.querySelectorAll("#paretoSignal button").forEach((x) => x.classList.toggle("on", x === b));
-      renderPareto();
-    });
-    $("#paretoUniverse").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      paretoU = b.dataset.u;
-      document.querySelectorAll("#paretoUniverse button").forEach((x) => x.classList.toggle("on", x === b));
-      renderPareto();
-    });
-
-    const svg = $("#paretoSvg");
-    const tt = $("#paretoTooltip");
-    const wrap = $("#paretoChartWrap");
-
-    svg.addEventListener("mousemove", (e) => {
-      const grp = e.target.closest(".p-node-group");
-      if (!grp) {
-        tt.hidden = true;
-        return;
-      }
-      const sym = grp.dataset.sym;
-      const r = DATA.instruments.find((x) => x.symbol === sym);
-      if (!r) return;
-      const s = paretoHorizon === "10y" ? (paretoSig === "xl" ? r.xl_10y : r.pb_10y) : r[paretoSig];
-      const tier = paretoHorizon === "10y" ? r.tier_10y : r.tier;
-      const verdict = paretoHorizon === "10y" ? r.verdict_10y : r.verdict;
-      const rect = wrap.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      tt.style.left = `${x}px`;
-      tt.style.top = `${y}px`;
-      tt.innerHTML = `
-        <div class="tt-top">
-          <span class="tt-sym">${r.label}</span>
-          <span class="tt-tier">Tier ${tier} · ${verdict}</span>
-        </div>
-        <div class="tt-name">${r.name}</div>
-        <dl>
-          <dt>Sample base</dt><dd class="dim">${s.count_1y} signals · ${paretoHorizon === "10y" ? "Last 10Y" : (r.years || '—') + "Y (since " + (r.start_year || '—') + ")"}</dd>
-          <dt>1Y Win Rate</dt><dd class="${cls(s.win_1y - 50)}">${Math.round(s.win_1y)}%</dd>
-          <dt>Median 1Y</dt><dd class="${cls(s.med_1y)}">${fmtPct(s.med_1y)}</dd>
-          <dt>Median 2Y</dt><dd>${fmtPct(s.med_2y)}</dd>
-          <dt>3M Dip</dt><dd class="dim">${fmtPct(s.med_dd_3m)}</dd>
-        </dl>
-      `;
-      tt.hidden = false;
-    });
-
-    svg.addEventListener("mouseleave", () => {
-      tt.hidden = true;
-    });
-    $("#paretoHorizon").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      paretoHorizon = b.dataset.h;
-      document.querySelectorAll("#paretoHorizon button").forEach((x) => x.classList.toggle("on", x === b));
-      renderPareto();
-    });
-    $("#filters").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      filter = b.dataset.f;
-      document.querySelectorAll("#filters button").forEach((x) => x.classList.toggle("on", x === b));
-      renderTable();
-    });
-    $("#search").addEventListener("input", renderTable);
-    document.querySelectorAll("th[data-k]").forEach((th) =>
-      th.addEventListener("click", () => {
-        const k = th.dataset.k;
-        if (sortKey === k) sortAsc = !sortAsc;
-        else { sortKey = k; sortAsc = k === "label" || k === "z" || k === "tier"; }
-        renderTable();
-      })
-    );
-    document.addEventListener("click", (e) => {
-      const row = e.target.closest("[data-sym]");
-      if (row && !e.target.closest("a")) openDrawer(row.dataset.sym);
-      if (e.target.closest("[data-close]")) closeDrawer();
-    });
-    document.addEventListener("keydown", (e) => e.key === "Escape" && closeDrawer());
-  }
-
-  startField();
-  splitHeadline();
-  wire();
-  fetch("data/scan.json", { cache: "no-store" })
-    .then((r) => r.json())
-    .then((d) => {
-      DATA = d;
-      DATA.instruments.forEach((r) => (r._sig = currentSignal(r)));
-      renderHeader();
-      renderCards();
-      renderPareto();
-      renderTable();
-    })
-    .catch((err) => {
-      $("#announceText").textContent = "The scan data failed to load. " + err.message;
-    });
+/* Pullback research terminal. No account connections or order execution. */
+(() => {
+'use strict';
+const $=s=>document.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=v=>Number.isFinite(v)?`${v>=0?'+':''}${v.toFixed(1)}%`:'—', num=v=>Number.isFinite(v)?v.toFixed(2):'—';
+const med=a=>{a=a.filter(Number.isFinite).sort((a,b)=>a-b);return a.length?(a[Math.floor((a.length-1)/2)]+a[Math.ceil((a.length-1)/2)])/2:null};
+const tag=(s,c='')=>`<span class="tag ${c}">${esc(s)}</span>`;
+let data,rows=[],journal={entries:[]},saved=new Set(),holdings='';
+try{saved=new Set(JSON.parse(localStorage.getItem('pullback-watch')||'[]'));holdings=localStorage.getItem('pullback-holdings')||''}catch{}
+const params=new URLSearchParams(location.search);
+$('#search').value=params.get('q')||'';$('#filter').value=params.get('filter')||'all';$('#asof').value=params.get('date')||'';$('#holdings').value=holdings;
+function sample(events){const a=events.filter(e=>e.ret_1y!==null).map(e=>e.ret_1y), n=a.length,w=a.filter(v=>v>0).length,p=n?w/n:0,z=1.96;
+ const low=n?(p+z*z/(2*n)-z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n)))/(1+z*z/n)*100:null;
+ return {count_1y:n,win_1y:n?p*100:null,med_1y:med(a),wilson:[low,null],baseline_edge:null,distribution:a.length?[Math.min(...a),med(a.filter(x=>x<=med(a))),med(a),med(a.filter(x=>x>=med(a))),Math.max(...a)]:[]};}
+function replay(r,date){
+ const h=r.history;let i=h.dates.findLastIndex(d=>d<date && d<=r.closed.date);if(i<50)return null;
+ const at=h.dates[i],cut=new Date(at);cut.setUTCFullYear(cut.getUTCFullYear()-10);
+ const events=r.events.filter(e=>e.date<=at).map(e=>({...e,ret_1y:e.ret_1y_date&&e.ret_1y_date<=at?e.ret_1y:null}));
+ const recent=events.filter(e=>e.date>=cut.toISOString().slice(0,10));const pb=sample(recent.filter(e=>e.new_pb)),xl=sample(recent.filter(e=>e.new_xl));
+ let base=[];for(let k=50;k+52<=i;k++){if(h.dates[k]>=cut.toISOString().slice(0,10)&&h.open_gbp[k+1]>0)base.push((h.gbp[k+52]/h.open_gbp[k+1]*.998-1)*100)}
+ const baseline=med(base);for(const s of [pb,xl])s.baseline_edge=s.med_1y!==null&&baseline!==null?s.med_1y-baseline:null;
+ const qualifies=(s,min)=>s.count_1y>=10&&s.win_1y>=80&&s.med_1y>=min&&s.baseline_edge>0;
+ const tier=qualifies(pb,12)?1:qualifies(xl,15)?2:pb.count_1y<10?3:4;
+ // No live/future data used for historical state.
+ const prev14=h.close.slice(i-14,i).reduce((a,b)=>a+b,0)/14;
+ const below=h.close[i]<h.sma20[i]&&h.close[i]<h.sma50[i]&&h.close[i-1]<prev14;
+ const st=below&&(h.roc14[i]<0||h.roc14[i-1]<0)?h.z20[i]<=-2.4?'PULLBACK XL':h.z20[i]<=-1.35?'PULLBACK':h.z20[i]<=-.95?'NEAR':'NONE':'NONE';
+ const fresh=events.findLast(e=>e.date===at);
+ return {...r,tier,verdict:['','Pullback evidence','XL evidence','Unproven','No demonstrated edge'][tier],pb,xl,baseline,events,
+ closed:{date:at,state:st,z20:h.z20[i],trigger:fresh?.type},live:{date:at,state:st,z20:h.z20[i],roc14:h.roc14[i],provisional:false},price:h.close[i],radar:{},peers:[],objections:['Historical replay uses today’s watchlist and revised prices'],history:Object.fromEntries(Object.entries(h).map(([k,v])=>[k,v.slice(0,i+1)])),_replay:true};
+}
+function publishState(){const p=new URLSearchParams();if($('#search').value)p.set('q',$('#search').value);if($('#filter').value!=='all')p.set('filter',$('#filter').value);if($('#asof').value)p.set('date',$('#asof').value);history.replaceState(null,'',location.pathname+(p.size?'?'+p:'')+location.hash);}
+function status(r){return r.closed.trigger?'NEW '+r.closed.trigger:r.live.provisional&&r.live.state.startsWith('PULLBACK')?'PROVISIONAL':r.closed.state.startsWith('PULLBACK')?'ONGOING':r.live.state==='NEAR'?'DEVELOPING':'QUIET'}
+function strength(r){return r.closed.trigger?5:r.live.state==='PULLBACK XL'?4:r.live.state==='PULLBACK'?3:r.live.state==='NEAR'?2:0}
+function range(s){const a=s.distribution;if(!a?.length)return '';const lo=a[0],hi=a[4],x=v=>3+(v-lo)/(hi-lo||1)*89;return `<svg class="mini-range" viewBox="0 0 95 15" role="img" aria-label="Outcome range ${pct(lo)} to ${pct(hi)}"><line x1="3" x2="92" y1="8" y2="8" stroke="#666"/><line x1="${x(a[1])}" x2="${x(a[3])}" y1="8" y2="8" stroke="#5a9bff" stroke-width="5"/><circle cx="${x(a[2])}" cy="8" r="3" fill="white"/><title>Worst / Q1 / median / Q3 / best: ${a.map(pct).join(' / ')}</title></svg>`}
+function stats(s){return `${pct(s.med_1y)}${range(s)}<small>${s.count_1y} mature · ${s.win_1y==null?'—':s.win_1y.toFixed(0)+'%'} wins</small>`}
+function render(){
+ const date=$('#asof').value;rows=data.instruments.map(r=>date?replay(r,date):r).filter(Boolean);publishState();
+ const fresh=rows.filter(r=>r.closed.trigger),provisional=rows.filter(r=>r.live.provisional&&r.live.state.startsWith('PULLBACK'));
+ $('#quality').innerHTML=`${data.count}/${data.configured} instruments · Scan ${esc(new Date(data.generated).toLocaleString('en-GB',{timeZone:'Europe/London'}))} London · ${data.model_version}${data.failed.length?` <span class="badge-error">· Failed: ${data.failed.map(x=>esc(x.symbol)).join(', ')}</span>`:''}${Date.now()-Date.parse(data.generated)>1000*60*60*48?' · STALE: more than 48 hours old':''}`;
+ $('#replayNote').textContent=date?'Historic research: outcomes and eligibility stop at the selected date. No historic universe reconstruction.':'Confirmed weeks only. Developing conditions are provisional.';
+ $('#summary').innerHTML=[['New confirmed',fresh.length,'Latest completed week'],['Provisional',provisional.length,'May change before confirmation'],['Evidence tiers 1 + 2',rows.filter(r=>r.tier<=2).length,'At least ten mature episodes'],['Coverage',`${rows.length}/${data.configured}`,date?'Instruments available at replay date':'Current successful instruments']].map(([a,b,c])=>`<div class="metric"><span>${a}</span><strong>${b}</strong><span>${c}</span></div>`).join('');
+ $('#queue').innerHTML=fresh.length?fresh.map(r=>`<article class="trigger-card" data-symbol="${r.symbol}" tabindex="0"><h3>${esc(r.label)}</h3>${tag(r.closed.trigger,'new')} ${tag(r.verdict)}<p>${esc(r.name)}</p><p>${r.closed.date} · ${r.pb.count_1y} mature PB episodes · baseline edge ${pct(r.pb.baseline_edge)}</p></article>`).join(''):'<p class="empty-state">No fresh confirmed triggers on the latest completed week. Developing setups are below. An ongoing pullback does not create a fresh entry.</p>';
+ const radar=rows.filter(r=>!r.closed.trigger&&Number.isFinite(r.live.z20)).sort((a,b)=>Math.abs(a.live.z20+1.35)-Math.abs(b.live.z20+1.35)).slice(0,6);
+ $('#radarCards').innerHTML=radar.map(r=>`<article class="radar-card"><button data-symbol="${r.symbol}">${esc(r.label)} ↗</button><p>${tag(status(r))} Z ${num(r.live.z20)}</p><p class="mono">PB ${num(r.radar.pb_price)}<br>XL ${num(r.radar.xl_price)}</p><small>${r.radar.conditions??'—'}/4 non-Z conditions · ${r.currency} exposure</small></article>`).join('');
+ const z=rows.map(r=>r.live.z20).filter(Number.isFinite),pb=z.filter(v=>v<=-1.35).length/z.length*100,xl=z.filter(v=>v<=-2.4).length/z.length*100;
+ $('#weather').textContent=`${pb.toFixed(0)}% below the pullback Z threshold · ${xl.toFixed(0)}% extreme · Median Z ${num(med(z))}. Threshold breadth alone does not establish cause or business quality.`;
+ $('#heatmap').innerHTML=[...rows].sort((a,b)=>a.category.localeCompare(b.category)).map(r=>`<button class="heat ${r.live.z20<=-2.4?'extreme':r.live.z20<=-1.35?'hot':''}" data-symbol="${r.symbol}"><strong>${esc(r.label)}</strong><small>${esc(r.category)}</small><small>Z ${num(r.live.z20)}</small></button>`).join('');renderTable();renderMap();renderJournal();
+}
+function filtered(){const q=$('#search').value.toLowerCase(),f=$('#filter').value;let a=rows.filter(r=>(r.label+' '+r.name+' '+r.category).toLowerCase().includes(q)).filter(r=>f==='all'||f==='new'&&r.closed.trigger||f==='watch'&&strength(r)>0||f==='evidence'&&r.tier<=2||f===r.kind||f==='saved'&&saved.has(r.symbol));
+ const k=$('#sort').value;return a.sort((a,b)=>k==='name'?a.label.localeCompare(b.label):k==='z'?a.live.z20-b.live.z20:k==='n'?b.pb.count_1y-a.pb.count_1y:k==='edge'?(b.pb.baseline_edge??-999)-(a.pb.baseline_edge??-999):strength(b)-strength(a)||a.tier-b.tier);}
+function renderTable(){const research=$('#research').checked;$('#universeTable thead').innerHTML='<tr>'+['Instrument','Status','Z · 20W','PB · net 1Y','Baseline edge',...(research?['XL · net 1Y','95% win interval','Median adverse path']:[]),'Evidence'].map(x=>`<th>${x}</th>`).join('')+'</tr>';
+ $('#universeTable tbody').innerHTML=filtered().map(r=>`<tr data-symbol="${r.symbol}" tabindex="0"><td><b>${esc(r.label)}</b><small>${esc(r.name)}</small></td><td>${tag(status(r),r.closed.trigger?'new':'')}<small>${r.closed.date}</small></td><td class="num">${num(r.live.z20)}</td><td>${stats(r.pb)}</td><td class="num">${pct(r.pb.baseline_edge)}<small>Same asset / GBP</small></td>${research?`<td>${stats(r.xl)}</td><td>${r.pb.wilson?.map(x=>x==null?'—':x.toFixed(0)+'%').join(' to ')}</td><td>${pct(r.pb.med_mae)}</td>`:''}<td>${tag(r.verdict)}<small>${r.pb.count_1y<10?'Small sample':r.pb.confidence||'Matured observations'}</small></td></tr>`).join('')||'<tr><td colspan="9">No matching instruments</td></tr>';}
+function renderMap(){let pts=rows.filter(r=>r.pb.count_1y>0&&r.pb.baseline_edge!=null),tension=$('#mapMode').value==='tension';const W=1000,H=430,p=65,xx=r=>tension?r.live.z20:r.pb.wilson[0],xmin=tension?-4:0,xmax=tension?4:100;
+ const ys=pts.map(r=>r.pb.baseline_edge),lo=Math.min(-10,...ys),hi=Math.max(10,...ys),X=v=>p+(v-xmin)/(xmax-xmin)*(W-2*p),Y=v=>H-p-(v-lo)/(hi-lo)*(H-2*p);
+ let s=`<svg viewBox="0 0 ${W} ${H}" aria-label="Evidence scatter"><line x1="${p}" x2="${W-p}" y1="${Y(0)}" y2="${Y(0)}" stroke="#444"/>`;
+ for(let i=0;i<=4;i++){let v=xmin+(xmax-xmin)*i/4;s+=`<text x="${X(v)}" y="${H-35}" class="chart-label" text-anchor="middle">${num(v)}</text>`}for(let i=0;i<=4;i++){let v=lo+(hi-lo)*i/4;s+=`<text x="10" y="${Y(v)}" class="chart-label">${v.toFixed(0)}pp</text>`}
+ if(tension)for(const v of [-1.35,-2.4])s+=`<line x1="${X(v)}" x2="${X(v)}" y1="${p}" y2="${H-p}" stroke="#365c99" stroke-dasharray="4 4"/>`;
+ for(const r of pts){const x=X(xx(r)),y=Y(r.pb.baseline_edge),color=r.tier<=2?'#4189ff':'#929292';s+=`<g class="plot-point" data-symbol="${r.symbol}" tabindex="0"><title>${esc(r.label)}: ${pct(r.pb.baseline_edge)} edge, N=${r.pb.count_1y}</title>`;if(tension){const tail=r.history.z20.slice(-3).filter(Number.isFinite);s+=`<polyline points="${tail.map(v=>`${X(v)},${y}`).join(' ')}" fill="none" stroke="${color}" opacity=".4"/>`}s+=`<circle cx="${x}" cy="${y}" r="${3+Math.min(9,Math.sqrt(r.pb.count_1y))}" fill="${color}" opacity=".8"/><text x="${x+9}" y="${y-7}" class="chart-label">${esc(r.label)}</text></g>`}
+ s+=`<text x="500" y="420" class="chart-label" text-anchor="middle">${tension?'Current 20W Z-score':'Lower 95% Wilson win-rate bound (%)'} · Y: median return minus unconditional baseline</text></svg>`;$('#scatter').innerHTML=s;}
+function chart(lines,dates,label){const a=lines.flatMap(l=>l.values).filter(Number.isFinite);if(!a.length)return '<p>No mature paths available.</p>';const W=850,H=260,p=45,lo=Math.min(...a),hi=Math.max(...a),n=Math.max(...lines.map(l=>l.values.length));const x=i=>p+i/(n-1||1)*(W-2*p),y=v=>H-p-(v-lo)/(hi-lo||1)*(H-2*p);return `<svg class="chart" viewBox="0 0 ${W} ${H}" aria-label="${esc(label)}"><title>${esc(label)}</title>${[0,1,2].map(i=>`<text x="5" y="${y(lo+(hi-lo)*i/2)}" class="chart-label">${(lo+(hi-lo)*i/2).toFixed(1)}</text>`).join('')}${lines.map(l=>`<polyline points="${l.values.map((v,i)=>Number.isFinite(v)?`${x(i)},${y(v)}`:'').filter(Boolean).join(' ')}" fill="none" stroke="${l.color}" stroke-width="${l.width||1.5}" opacity="${l.opacity||1}"><title>${esc(l.label)}</title></polyline>`).join('')}<text x="45" y="250" class="chart-label">${esc(dates[0]||'Entry')}</text><text x="800" y="250" text-anchor="end" class="chart-label">${esc(dates.at(-1)||'52 weeks')}</text></svg>`}
+function allocationScenario(r){
+ const positions=$('#holdings').value.trim().split('\n').filter(Boolean).map(l=>l.trim().split(/\s+/));
+ const value=Number($('#portfolioValue').value),cash=Number($('#cash').value);
+ if(!positions.length||!value||!cash)return '<p>Enter portfolio weights, an existing value and new cash in the Lab to compare adding this asset with retaining cash.</p>';
+ const weights=positions.map(([s,w])=>({r:rows.find(x=>x.label.toUpperCase()===s.toUpperCase()||x.symbol.toUpperCase()===s.toUpperCase()),w:Number(w)/100}));
+ if(weights.some(x=>!x.r||!(x.w>0))||Math.abs(weights.reduce((s,x)=>s+x.w,0)-1)>.001)return '<p>Use recognised universe tickers and weights totalling 100%.</p>';
+ const returns=x=>new Map(x.history.dates.slice(1).map((d,i)=>[d,x.history.gbp[i+1]/x.history.gbp[i]-1]));
+ const target=returns(r),mapped=weights.map(x=>({...x,returns:returns(x.r)}));
+ const dates=[...target.keys()].filter(d=>d<=r.closed.date&&mapped.every(x=>Number.isFinite(x.returns.get(d)))&&Number.isFinite(target.get(d))).slice(-104);
+ if(dates.length<52)return '<p>Fewer than 52 common GBP weekly returns. Scenario unavailable.</p>';
+ const metrics=(withAsset)=>{const vals=dates.map(d=>mapped.reduce((s,x)=>s+x.w*x.returns.get(d),0)*value/(value+cash)+(withAsset?target.get(d)*cash/(value+cash):0));const mean=vals.reduce((a,b)=>a+b,0)/vals.length;return [Math.sqrt(vals.reduce((s,v)=>s+(v-mean)**2,0)/(vals.length-1))*Math.sqrt(52)*100,Math.min(...vals)*100]};
+ const held=metrics(false),add=metrics(true);
+ return `<p>£${cash.toLocaleString('en-GB')} added to £${value.toLocaleString('en-GB')} · ${dates.length} common weeks</p><table><tr><th>Scenario</th><th>Annualised volatility</th><th>Worst week</th></tr><tr><td>Retain new cash</td><td>${pct(held[0])}</td><td>${pct(held[1])}</td></tr><tr><td>Add ${esc(r.label)}</td><td>${pct(add[0])}</td><td>${pct(add[1])}</td></tr></table><p class="muted">Historical covariance scenario in GBP, assuming constant weekly rebalanced weights, cash earning zero and no dealing costs. This estimates past risk, not expected return or an allocation recommendation.</p>`;
+}
+function inspect(sym){const r=rows.find(x=>x.symbol===sym);if(!r)return;const pb=r.pb,h=r.history,paths=r.events.filter(e=>e.new_pb&&e.ret_1y!==null&&e.path?.length&&e.date>=String(Number(h.dates.at(-1).slice(0,4))-10)+h.dates.at(-1).slice(4));
+ const pathlines=paths.map(e=>({label:e.date,values:e.path,color:'#6985a8',opacity:.25}));if(paths.length){for(const q of [.25,.75])pathlines.push({label:`${q*100}th percentile`,values:Array.from({length:52},(_,i)=>{const a=paths.map(e=>e.path[i]).filter(Number.isFinite).sort((a,b)=>a-b);return a[Math.floor((a.length-1)*q)]}),color:'#e8c070',opacity:.7});}if(paths.length)pathlines.push({label:'Median path',values:Array.from({length:52},(_,i)=>med(paths.map(e=>e.path[i]))),color:'#4a94ff',width:3});
+ let peers=r.peers||[];const positions=$('#holdings').value.split('\n').map(l=>l.trim().split(/\s+/)).filter(a=>a.length===2&&Number(a[1])>0);const held=peers.filter(p=>positions.some(a=>a[0].toUpperCase()===p.symbol.toUpperCase()||a[0].toUpperCase()===rows.find(x=>x.symbol===p.symbol)?.label));
+ $('#detail').innerHTML=`<p class="eyebrow mono">${esc(r.kind+' / '+r.category)}</p><h2>${esc(r.label)}</h2><p>${esc(r.name)}</p>${tag(status(r),'new')}${tag(r.verdict)}<button id="saveAsset" class="${saved.has(sym)?'saved':''}">${saved.has(sym)?'★ Saved':'☆ Save to watchlist'}</button><p class="muted">${esc(r.closed.date)} confirmed · native adjusted quote ${num(r.price)} · ${r.currency} exposure</p><div class="detail-grid">${[['Net 1Y median',pct(pb.med_1y)],['Baseline edge',pct(pb.baseline_edge)],['Global index excess',pct(pb.benchmark_excess)],['Mature episodes',pb.count_1y],['Median adverse path',pct(pb.med_mae)],['Weeks to trough',num(pb.med_trough_weeks)]].map(([a,b])=>`<div class="panel"><small>${a}</small><strong>${b}</strong></div>`).join('')}</div><h3>Weekly price and trend</h3>${chart([{label:'Adjusted close',values:h.close.slice(-104),color:'#eee'},{label:'20W mean',values:h.sma20.slice(-104),color:'#408aff'},{label:'50W mean',values:h.sma50.slice(-104),color:'#e8c070'}],h.dates.slice(-104),'Adjusted quote units: white price, blue 20W mean, gold 50W mean')}<h3>20W statistical stretch</h3>${chart([{label:'20W Z',values:h.z20.slice(-104),color:'#4189ff'},{label:'Pullback threshold',values:h.z20.slice(-104).map(()=>-1.35),color:'#888'},{label:'XL threshold',values:h.z20.slice(-104).map(()=>-2.4),color:'#e8c070'}],h.dates.slice(-104),'20-week Z-score and thresholds')}<h3>The journey after entry</h3><p class="muted">Ten-year mature PB episodes, GBP weekly-close paths before costs. Net endpoint statistics include the round-trip cost. Median time to first nonnegative weekly close: ${num(pb.med_recovery_weeks)} weeks among recovered paths.</p>${chart(pathlines,[],'Post-entry GBP return paths (%)')}<h3>Reasons to investigate</h3><ul>${(r.objections.length?r.objections:['No automated objection found. Fundamentals and current catalysts remain unchecked.']).map(o=>`<li>${esc(o)}</li>`).join('')}</ul><p>52W structural Z: ${num(r.radar.z52)}. Diagnostic only, not a replacement signal.</p><h3>Your next cash contribution</h3>${allocationScenario(r)}<h3>Shared exposure proxy</h3><p>${peers.map(p=>`${esc(rows.find(x=>x.symbol===p.symbol)?.label||p.symbol)} ${num(p.correlation)}`).join(' · ')||'Unavailable in replay'}</p><p class="muted">Trailing 104-week native-return correlations, minimum 52 overlapping observations. Top five peers only. FX and fund holdings are not resolved.</p><p>${held.length?'Highly correlated entered positions: '+held.map(p=>esc(p.symbol)).join(', '):'No entered position appears in the top-five peer list. This does not establish diversification.'}</p><h3>Walk-forward and robustness</h3>${r._replay?'<p>Full-sample research is hidden in historic replay.</p>':`<p>Expanding, matured-only selection: ${r.walkforward.count_1y} completed selected episodes · ${pct(r.walkforward.med_1y)} median. Parameters and universe were not selected out of sample.</p><p>${r.sensitivity.map(s=>`Z ${s.threshold}: ${pct(s.median)} (N=${s.n})`).join(' · ')}</p><p class="muted">Threshold sweep keeps XL fixed. Same 20bp costs. Descriptive robustness, not an optimised rule.</p><p>${(r.execution_stress||[]).map(s=>`${s.delay_weeks}W delay / ${s.cost_bps}bp: ${pct(s.median)} (N=${s.n})`).join(" · ")}</p><h3>Cost of waiting</h3><p class="muted">One pot, annual start samples, same 104-week endpoint. Immediate next-open vs three tranches over 8 weeks vs waiting up to 52 weeks for a PB. Cash earns zero. No trigger means remaining in cash to the endpoint.</p><div class="detail-table"><table><thead><tr><th>Start</th><th>Immediate</th><th>Phased</th><th>Wait</th><th>Weeks cash</th></tr></thead><tbody>${r.waiting.map(w=>`<tr><td>${w.start}</td><td>${pct(w.immediate)}</td><td>${pct(w.phased)}</td><td>${pct(w.waiting)}</td><td>${w.weeks_cash}</td></tr>`).join('')}</tbody></table></div>`}<h3>Confirmed episode record</h3><div class="detail-table"><table><thead><tr><th>Friday</th><th>Trigger</th><th>Net 1Y GBP</th><th>Entry week</th></tr></thead><tbody>${r.events.slice(-30).reverse().map(e=>`<tr><td>${e.date}</td><td>${tag(e.type)}</td><td>${pct(e.ret_1y)}</td><td>${e.entry_date||'Pending'}</td></tr>`).join('')}</tbody></table></div><p><a href="${esc(r.source)}" target="_blank" rel="noopener">Price source ↗</a> · <a href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.tv)}&interval=1W" target="_blank" rel="noopener">Weekly TradingView chart ↗</a></p>`;
+ $('#saveAsset').onclick=()=>{saved.has(sym)?saved.delete(sym):saved.add(sym);try{localStorage.setItem('pullback-watch',JSON.stringify([...saved]))}catch{}inspect(sym);renderTable()};if(!$('#inspector').open)$('#inspector').showModal();}
+function renderJournal(){const entries=journal.entries.filter(e=>!$('#asof').value||e.observed_at.slice(0,10)<=$('#asof').value);$('#journalSummary').textContent=`First observed from ${journal.started||'this deployment'}. ${entries.length} immutable trigger snapshots. Older reconstructed signals are backtests, not forward observations. Forward entries use the first full trading week after observation. Historical next-week entries are never presented as forward fills.`;
+ $('#journalTable').innerHTML='<table><thead><tr><th>Observed</th><th>Instrument</th><th>Signal Friday</th><th>Trigger</th><th>Net 1Y GBP</th></tr></thead><tbody>'+entries.map(e=>{const event=rows.find(r=>r.symbol===e.symbol)?.events.find(x=>x.date===e.date&&x.type===e.type);return `<tr><td>${esc(e.observed_at.slice(0,10))}</td><td>${esc(e.label)}</td><td>${e.date}</td><td>${tag(e.type)}</td><td>${$('#asof').value||data.forward_outcomes?.find(x=>x.symbol===e.symbol&&x.date===e.date&&x.type===e.type)?.net_1y_gbp==null?'Awaiting forward maturity':pct(data.forward_outcomes.find(x=>x.symbol===e.symbol&&x.date===e.date&&x.type===e.type).net_1y_gbp)}</td></tr>`}).join('')+'</tbody></table>';}
+for(const id of ['search','filter','sort','research'])$('#'+id).addEventListener('input',()=>{publishState();renderTable()});$('#mapMode').onchange=renderMap;$('#asof').onchange=render;$('#today').onclick=()=>{$('#asof').value='';render()};$('#closeInspector').onclick=()=>$('#inspector').close();
+$('#holdings').oninput=()=>{try{localStorage.setItem('pullback-holdings',$('#holdings').value)}catch{}$('#portfolioNote').textContent='Saved locally. Open an instrument to inspect correlations.'};
+document.addEventListener('click',e=>{const el=e.target.closest('[data-symbol]');if(el)inspect(el.dataset.symbol)});document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('[data-symbol]'))inspect(e.target.dataset.symbol);if(e.key==='/'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){e.preventDefault();$('#search').focus()}});
+$('#export').onclick=()=>{const lines=[['Ticker','Status','Mature N','Median net 1Y GBP','Baseline edge pp'],...filtered().map(r=>[r.label,status(r),r.pb.count_1y,r.pb.med_1y,r.pb.baseline_edge])];const blob=new Blob([lines.map(a=>a.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n')],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pullback-research.csv';a.click();URL.revokeObjectURL(a.href)};
+Promise.all([fetch('data/scan.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('Scan unavailable');return r.json()}),fetch('data/journal.json',{cache:'no-store'}).then(r=>r.ok?r.json():{entries:[]})]).then(([d,j])=>{data=d;journal=j;$('#asof').max=d.generated.slice(0,10);$('#asof').min='2012-01-01';render()}).catch(e=>{$('#quality').textContent='Unable to load research data: '+e.message});
 })();
