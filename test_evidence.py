@@ -10,6 +10,10 @@ class EvidenceTests(unittest.TestCase):
  def frame(self,n=850):
   idx=pd.date_range('2007-01-05',periods=n,freq='W-FRI');c=pd.Series(100*np.exp(np.arange(n)*.001+np.sin(np.arange(n)/8)*.13),index=idx)
   return pd.DataFrame({'Open':c*.999,'High':c*1.03,'Low':c*.96,'Close':c})
+ def test_qwtm_identity(self):
+  from scanner import ETFS
+  item=next(x for x in ETFS if x[1]=='QWTM.L')
+  self.assertIn('WisdomTree Quantum Computing',item[3]);self.assertEqual(item[4],'Quantum computing')
  def test_confirm_saturday_not_friday(self):
   f=self.frame(60);fri=str(f.index[-1].date())
   a,b=split_weeks(f,fri+' 23:59:00+00:00');self.assertEqual(len(a),59)

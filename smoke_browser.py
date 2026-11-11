@@ -12,8 +12,13 @@ def run(url='http://127.0.0.1:8873', out='/tmp/pullback-check'):
   page.goto(url);page.wait_for_selector('#universeTable tbody tr[data-symbol]')
   assert '54/54' in page.locator('#quality').inner_text()
   assert page.locator('#universeTable tbody tr[data-symbol]').count()==54
+  assert 'mature PB episodes' not in page.locator('#queue').inner_text()
+  assert 'baseline edge' not in page.locator('#queue').inner_text()
+  assert 'Unproven' not in page.locator('#queue').inner_text()
+  assert page.locator('#universeTable th').count()==4
+  qwtm=page.locator('#universeTable tr[data-symbol="QWTM.L"]');assert 'WisdomTree Quantum Computing' in qwtm.inner_text()
   page.screenshot(path=out+'/desktop.png',full_page=True);page.screenshot(path=out+'/desktop-viewport.png')
-  page.locator('#holdings').fill('CNX1 40\nVUAG 60');page.locator('#portfolioValue').fill('10000');
+  page.locator('#advanced').evaluate('(e)=>e.open=true');page.locator('#holdings').fill('CNX1 40\nVUAG 60');page.locator('#portfolioValue').fill('10000');
   page.locator('#search').fill('CNX1');assert page.locator('#universeTable tbody tr[data-symbol]').count()==1
   page.locator('#universeTable tbody tr').first.click();assert page.locator('#inspector').evaluate('(e)=>e.open')
   assert 'Cost of waiting' in page.locator('#detail').inner_text();assert 'Retain new cash' in page.locator('#detail').inner_text()

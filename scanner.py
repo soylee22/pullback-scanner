@@ -52,7 +52,7 @@ ETFS = [
     ("IITU", "IITU.L", "LSE:IITU", "iShares S&P 500 IT Sector", "Tech / Nasdaq"),
     ("INRG", "INRG.L", "LSE:INRG", "iShares Global Clean Energy", "Thematic"),
     ("SEMI", "SEMI.L", "LSE:SEMI", "iShares MSCI Global Semiconductors", "Semiconductors"),
-    ("QWTM", "QWTM.L", "LSE:QWTM", "Xtrackers MSCI World Momentum", "Factor"),
+    ("QWTM", "QWTM.L", "LSE:QWTM", "WisdomTree Quantum Computing UCITS ETF - USD Acc", "Quantum computing"),
     ("IUKD", "IUKD.L", "LSE:IUKD", "iShares UK Dividend", "Dividend"),
     ("DGRG", "DGRG.L", "LSE:DGRG", "WisdomTree Quality Dividend Growth", "Dividend"),
     ("XDAX", "XDAX.L", "LSE:XDAX", "Xtrackers DAX", "Regional"),
@@ -136,6 +136,7 @@ def main():
             row=analyse(frame,fx,benchmark,now)
             row.update(label=label,symbol=sym,tv=tv,name=name,category=category,kind=kind,currency=currency,
                        source="https://finance.yahoo.com/quote/"+sym+"/history/",quote_units="Yahoo adjusted quote units")
+            if sym=="QWTM.L":row["identity_source"]="https://www.wisdomtree.com/gb/products/equities/wisdomtree-quantum-computing-ucits-etf---usd-acc"
             rows.append(row)
         except Exception as exc:
             failed.append({"symbol":sym,"error":str(exc)[:180]});print("FAILED",sym,str(exc),flush=True)
