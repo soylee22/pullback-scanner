@@ -1,15 +1,7 @@
 name: Weekly pullback scan
 
+# Retired by Lee on 12 November 2026. The workflow is disabled in GitHub.
 on:
-  push:
-    branches:
-      - main
-  schedule:
-    # Weekdays after the London close and after the US close (covers the Friday weekly close).
-    - cron: '45 16 * * 1-5'
-    - cron: '30 21 * * 1-5'
-    # Saturday morning confirmation of the completed weekly bar.
-    - cron: '0 8 * * 6'
   workflow_dispatch:
 
 permissions:
